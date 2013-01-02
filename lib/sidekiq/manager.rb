@@ -144,7 +144,7 @@ module Sidekiq
       raise "BUG: No processors, cannot continue!" if @ready.empty? && @busy.empty?
       raise "No ready processor!?" if @ready.empty?
 
-      @fetcher.async.fetch
+      after(Sidekiq.options[:fetch_interval] || 0) { @fetcher.async.fetch }
     end
 
     def stopped?

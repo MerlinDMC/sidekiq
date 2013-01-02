@@ -108,6 +108,10 @@ module Sidekiq
     self.options[:poll_interval] = interval
   end
 
+  def self.fetch_interval=(interval)
+    self.options[:fetch_interval] = interval
+  end
+
   ##
   # deprecated
   def self.size(*queues)

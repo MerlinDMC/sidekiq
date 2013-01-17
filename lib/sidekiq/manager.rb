@@ -25,7 +25,7 @@ module Sidekiq
       @in_progress = {}
       @done = false
       @busy = []
-      @fetcher = Fetcher.new(current_actor, options[:queues], !!options[:strict])
+      @fetcher = Fetcher.new(current_actor, options)
       @ready = @count.times.map { Processor.new_link(current_actor) }
       procline(options[:tag] ? "#{options[:tag]} " : '')
     end
@@ -86,21 +86,19 @@ module Sidekiq
       end
     end
 
-    def assign(msg, queue)
+    def assign(work)
       watchdog("Manager#assign died") do
         if stopped?
           # Race condition between Manager#stop if Fetcher
           # is blocked on redis and gets a message after
           # all the ready Processors have been stopped.
           # Push the message back to redis.
-          Sidekiq.redis do |conn|
-            conn.lpush("queue:#{queue}", msg)
-          end
+          work.requeue
         else
           processor = @ready.pop
-          @in_progress[processor.object_id] = [msg, queue]
+          @in_progress[processor.object_id] = work
           @busy << processor
-          processor.async.process(msg, queue)
+          processor.async.process(work)
         end
       end
     end
@@ -114,23 +112,31 @@ module Sidekiq
           # They must die but their messages shall live on.
           logger.info("Still waiting for #{@busy.size} busy workers")
 
-          Sidekiq.redis do |conn|
-            logger.debug { "Clearing workers in redis" }
-            workers = conn.smembers('workers')
-            workers.each do |name|
-              conn.srem('workers', name) if name =~ /:#{process_id}-/
-            end
+          # Re-enqueue terminated jobs
+          # NOTE: You may notice that we may push a job back to redis before
+          # the worker thread is terminated. This is ok because Sidekiq's
+          # contract says that jobs are run AT LEAST once. Process termination
+          # is delayed until we're certain the jobs are back in Redis because
+          # it is worse to lose a job than to run it twice.
+          Sidekiq.options[:fetch].bulk_requeue(@in_progress.values)
 
-            @busy.each do |processor|
-              # processor is an actor proxy and we can't call any methods
-              # that would go to the actor (since it's busy).  Instead
-              # we'll use the object_id to track the worker's data here.
-              processor.terminate if processor.alive?
-              msg, queue = @in_progress[processor.object_id]
-              conn.lpush("queue:#{queue}", msg)
+          # Clearing workers in Redis
+          # NOTE: we do this before terminating worker threads because the
+          # process will likely receive a hard shutdown soon anyway, which
+          # means the threads will killed.
+          logger.debug { "Clearing workers in redis" }
+          Sidekiq.redis do |conn|
+            workers = conn.smembers('workers')
+            workers_to_remove = workers.select do |worker_name|
+              worker_name =~ /:#{process_id}-/
             end
+            conn.srem('workers', workers_to_remove)
           end
-          logger.info("Pushed #{@busy.size} messages back to Redis")
+
+          logger.debug { "Terminating worker threads" }
+          @busy.each do |processor|
+            processor.terminate if processor.alive?
+          end
 
           after(0) { signal(:shutdown) }
         end

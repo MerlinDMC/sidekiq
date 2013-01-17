@@ -54,6 +54,7 @@ var realtimeGraph = function(updatePath) {
       Sidekiq.failed = data.failed;
 
       updateStatsSummary(data);
+      pulseBeacon();
     });
     i++;
   }, timeInterval);
@@ -112,6 +113,18 @@ var updateStatsSummary = function(data) {
   $('ul.summary li.scheduled span.count').html(data.scheduled.numberWithDelimiter())
   $('ul.summary li.retries span.count').html(data.retries.numberWithDelimiter())
   $('ul.summary li.enqueued span.count').html(data.enqueued.numberWithDelimiter())
+}
+
+var pulseBeacon = function(){
+  $beacon = $('.beacon')
+  $beacon.find('.dot').addClass('pulse').delay(1000).queue(function(){
+    $(this).removeClass('pulse');
+    $(this).dequeue();
+  });
+  $beacon.find('.ring').addClass('pulse').delay(1000).queue(function(){
+    $(this).removeClass('pulse');
+    $(this).dequeue();
+  });
 }
 
 Number.prototype.numberWithDelimiter = function(delimiter) {

@@ -39,10 +39,14 @@ class TestClient < MiniTest::Unit::TestCase
         Sidekiq::Client.push('queue' => 'foo', 'class' => 42, 'args' => [1, 2])
       end
 
+      assert_raises ArgumentError do
+        Sidekiq::Client.push('queue' => 'foo', 'class' => MyWorker, 'args' => 1)
+      end
+
     end
 
     it 'pushes messages to redis' do
-      @redis.expect :rpush, 1, ['queue:foo', String]
+      @redis.expect :lpush, 1, ['queue:foo', String]
       pushed = Sidekiq::Client.push('queue' => 'foo', 'class' => MyWorker, 'args' => [1, 2])
       assert pushed
       assert_equal 24, pushed.size
@@ -50,7 +54,7 @@ class TestClient < MiniTest::Unit::TestCase
     end
 
     it 'pushes messages to redis using a String class' do
-      @redis.expect :rpush, 1, ['queue:foo', String]
+      @redis.expect :lpush, 1, ['queue:foo', String]
       pushed = Sidekiq::Client.push('queue' => 'foo', 'class' => 'MyWorker', 'args' => [1, 2])
       assert pushed
       assert_equal 24, pushed.size
@@ -66,28 +70,28 @@ class TestClient < MiniTest::Unit::TestCase
     end
 
     it 'handles perform_async' do
-      @redis.expect :rpush, 1, ['queue:default', String]
+      @redis.expect :lpush, 1, ['queue:default', String]
       pushed = MyWorker.perform_async(1, 2)
       assert pushed
       @redis.verify
     end
 
     it 'handles perform_async on failure' do
-      @redis.expect :rpush, nil, ['queue:default', String]
+      @redis.expect :lpush, nil, ['queue:default', String]
       pushed = MyWorker.perform_async(1, 2)
       refute pushed
       @redis.verify
     end
 
     it 'enqueues messages to redis' do
-      @redis.expect :rpush, 1, ['queue:default', String]
+      @redis.expect :lpush, 1, ['queue:default', String]
       pushed = Sidekiq::Client.enqueue(MyWorker, 1, 2)
       assert pushed
       @redis.verify
     end
 
     it 'enqueues messages to redis' do
-      @redis.expect :rpush, 1, ['queue:custom_queue', String]
+      @redis.expect :lpush, 1, ['queue:custom_queue', String]
       pushed = Sidekiq::Client.enqueue_to(:custom_queue, MyWorker, 1, 2)
       assert pushed
       @redis.verify
@@ -99,7 +103,7 @@ class TestClient < MiniTest::Unit::TestCase
     end
 
     it 'enqueues to the named queue' do
-      @redis.expect :rpush, 1, ['queue:flimflam', String]
+      @redis.expect :lpush, 1, ['queue:flimflam', String]
       pushed = QueuedWorker.perform_async(1, 2)
       assert pushed
       @redis.verify
@@ -117,6 +121,9 @@ class TestClient < MiniTest::Unit::TestCase
   end
 
   describe 'bulk' do
+    after do
+      Sidekiq::Queue.new.clear
+    end
     it 'can push a large set of jobs at once' do
       a = Time.now
       count = Sidekiq::Client.push_bulk('class' => QueuedWorker, 'args' => (1..1_000).to_a.map { |x| Array(x) })

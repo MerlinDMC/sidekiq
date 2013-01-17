@@ -1,3 +1,31 @@
+2.6.5
+-----------
+
+- Several reliability fixes for job requeueing upon termination [apinstein, #622, #624]
+- Fix typo in capistrano recipe
+- Add `retry_queue` option so retries can be given lower priority [ryanlower, #620]
+
+```ruby
+sidekiq_options queue: 'high', retry_queue: 'low'
+```
+
+2.6.4
+-----------
+
+- Fix crash upon empty queue [#612]
+
+2.6.3
+-----------
+
+- sidekiqctl exits with non-zero exit code upon error [jmazzi]
+- better argument validation in Sidekiq::Client [karlfreeman]
+
+2.6.2
+-----------
+
+- Add Dashboard beacon indicating when stats are updated. [brandonhilkert, #606]
+- Revert issue with capistrano restart. [#598]
+
 2.6.1
 -----------
 

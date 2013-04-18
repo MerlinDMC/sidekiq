@@ -116,20 +116,5 @@ module Sidekiq
 
   def self.fetch_interval=(interval)
     self.options[:fetch_interval] = interval
-<<<<<<< HEAD
-  end
-
-  ##
-  # deprecated
-  def self.size(*queues)
-    return Sidekiq::Stats.new.enqueued if queues.empty?
-
-    Sidekiq.redis { |conn|
-      conn.multi {
-        queues.map { |q| conn.llen("queue:#{q}") }
-      }
-    }.inject(0) { |memo, count| memo += count }
-=======
->>>>>>> refs/heads/remerge
   end
 end

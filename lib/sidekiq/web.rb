@@ -7,12 +7,30 @@ module Sidekiq
     include Sidekiq::Paginator
 
     dir = File.expand_path(File.dirname(__FILE__) + "/../../web")
+
     set :public_folder, "#{dir}/assets"
     set :views,  "#{dir}/views"
     set :root, "#{dir}/public"
+    set :locales, "#{dir}/locales"
     set :slim, :pretty => true
 
     helpers do
+      def strings
+        @strings ||= begin
+          Dir["#{settings.locales}/*.yml"].inject({}) do |memo, file|
+            memo.merge(YAML.load(File.read(file)))
+          end
+        end
+      end
+
+      def get_locale
+        (request.env["HTTP_ACCEPT_LANGUAGE"] || 'en')[0,2]
+      end
+
+      def t(msg, options={})
+        string = strings[get_locale].fetch(msg) || strings['en'].fetch(msg)
+        string % options
+      end
 
       def reset_worker_list
         Sidekiq.redis do |conn|
@@ -49,6 +67,10 @@ module Sidekiq
         Sidekiq.redis { |conn| conn.client.location }
       end
 
+      def namespace
+        @@ns ||= Sidekiq.redis {|conn| conn.respond_to?(:namespace) ? conn.namespace : nil }
+      end
+
       def root_path
         "#{env['SCRIPT_NAME']}/"
       end
@@ -80,6 +102,16 @@ module Sidekiq
       end
 
       def tabs
+        @tabs ||= {
+          "Dashboard" => '',
+          "Workers"   => 'workers',
+          "Queues"    => 'queues',
+          "Retries"   => 'retries',
+          "Scheduled" => 'scheduled',
+        }
+      end
+
+      def custom_tabs
         self.class.tabs
       end
 
@@ -95,9 +127,13 @@ module Sidekiq
         parts[0].gsub!(/(\d)(?=(\d\d\d)+(?!\d))/, "\\1#{options[:delimiter]}")
         parts.join(options[:separator])
       end
+
+      def redis_keys
+        ["redis_stats", "uptime_in_days", "connected_clients", "used_memory_human", "used_memory_peak_human"]
+      end
     end
 
-    get "/" do
+    get "/workers" do
       slim :index
     end
 
@@ -164,7 +200,7 @@ module Sidekiq
     end
 
     post "/retries/all/retry" do
-      Sidekiq::RetrySet.new.each { |job| job.retry }
+      Sidekiq::RetrySet.new.retry_all
       redirect "#{root_path}retries"
     end
 
@@ -195,8 +231,8 @@ module Sidekiq
       redirect "#{root_path}scheduled"
     end
 
-    get '/dashboard' do
-      @redis_info = Sidekiq.redis { |conn| conn.info }
+    get '/' do
+      @redis_info = Sidekiq.redis { |conn| conn.info }.select{ |k, v| redis_keys.include? k }
       stats_history = Sidekiq::Stats::History.new((params[:days] || 30).to_i)
       @processed_history = stats_history.processed
       @failed_history = stats_history.failed
@@ -204,25 +240,25 @@ module Sidekiq
     end
 
     get '/dashboard/stats' do
-      stats = Sidekiq::Stats.new
+      sidekiq_stats = Sidekiq::Stats.new
+      redis_stats   = Sidekiq.redis { |conn| conn.info }.select{ |k, v| redis_keys.include? k }
+
       content_type :json
       Sidekiq.dump_json({
-        processed: stats.processed,
-        failed: stats.failed,
-        enqueued: stats.enqueued,
-        scheduled: stats.scheduled_size,
-        retries: stats.retry_size,
+        sidekiq: {
+          processed:  sidekiq_stats.processed,
+          failed:     sidekiq_stats.failed,
+          busy:       workers.size,
+          enqueued:   sidekiq_stats.enqueued,
+          scheduled:  sidekiq_stats.scheduled_size,
+          retries:    sidekiq_stats.retry_size,
+        },
+        redis: redis_stats
       })
     end
 
     def self.tabs
-      @tabs ||= {
-        "Workers"   =>'',
-        "Queues"    =>'queues',
-        "Retries"   =>'retries',
-        "Scheduled" =>'scheduled',
-        "Dashboard" =>'dashboard'
-      }
+      @custom_tabs ||= {}
     end
 
   end

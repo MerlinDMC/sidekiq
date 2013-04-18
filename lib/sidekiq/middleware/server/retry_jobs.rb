@@ -14,7 +14,9 @@ module Sidekiq
       # 3. after a few days, a developer deploys a fix.  the message is
       #    reprocessed successfully.
       # 4. if 3 never happens, sidekiq will eventually give up and throw the
-      #    message away.
+      #    message away. If the worker defines a method called 'retries_exhausted',
+      #    this will be called before throwing the message away. If the
+      #    'retries_exhausted' method throws an exception, it's dropped and logged.
       #
       # A message looks like:
       #
@@ -43,7 +45,6 @@ module Sidekiq
 
         # delayed_job uses the same basic formula
         DEFAULT_MAX_RETRY_ATTEMPTS = 25
-        DELAY = proc { |count| (count ** 4) + 15 + (rand(30)*(count+1)) }
 
         def call(worker, msg, queue)
           yield
@@ -73,7 +74,7 @@ module Sidekiq
           end
 
           if count < max_retry_attempts
-            delay = DELAY.call(count)
+            delay = seconds_to_delay(count)
             logger.debug { "Failure! Retry #{count} in #{delay} seconds" }
             retry_at = Time.now.to_f + delay
             payload = Sidekiq.dump_json(msg)
@@ -82,9 +83,18 @@ module Sidekiq
             end
           else
             # Goodbye dear message, you (re)tried your best I'm sure.
-            logger.debug { "Dropping message after hitting the retry maximum: #{msg}" }
+            retries_exhausted(worker, msg)
           end
+
           raise e
+        end
+
+        def retries_exhausted(worker, msg)
+          logger.debug { "Dropping message after hitting the retry maximum: #{msg}" }
+          worker.retries_exhausted(*msg['args']) if worker.respond_to?(:retries_exhausted)
+
+        rescue Exception => e
+          handle_exception(e, "Error calling retries_exhausted")
         end
 
         def retry_attempts_from(msg_retry, default)
@@ -93,6 +103,10 @@ module Sidekiq
           else
             default
           end
+        end
+
+        def seconds_to_delay(count)
+          (count ** 4) + 15 + (rand(30)*(count+1))
         end
 
       end

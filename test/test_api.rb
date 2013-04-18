@@ -179,6 +179,22 @@ class TestApi < MiniTest::Unit::TestCase
       assert_equal 0, q.size
     end
 
+    it 'can find job by id in sorted sets' do
+      q = Sidekiq::Queue.new
+      job_id = ApiWorker.perform_in(100, 1, 'jason')
+      job = Sidekiq::ScheduledSet.new.find_job(job_id)
+      refute_nil job
+      assert_equal job_id, job.jid
+    end
+
+    it 'can find job by id in queues' do
+      q = Sidekiq::Queue.new
+      job_id = ApiWorker.perform_async(1, 'jason')
+      job = q.find_job(job_id)
+      refute_nil job
+      assert_equal job_id, job.jid
+    end
+
     it 'can clear a queue' do
       q = Sidekiq::Queue.new
       2.times { ApiWorker.perform_async(1, 'mike') }
@@ -267,6 +283,45 @@ class TestApi < MiniTest::Unit::TestCase
       assert_equal 2, r.size
       r.clear
       assert_equal 0, r.size
+    end
+
+    it 'can enumerate workers' do
+      w = Sidekiq::Workers.new
+      assert_equal 0, w.size
+      w.each do
+        assert false
+      end
+
+      s = '12345'
+      data = Sidekiq.dump_json({ 'payload' => {}, 'queue' => 'default', 'run_at' => Time.now.to_i })
+      Sidekiq.redis do |c|
+        c.multi do
+          c.sadd('workers', s)
+          c.set("worker:#{s}", data)
+        end
+      end
+
+      assert_equal 1, w.size
+      w.each do |x, y|
+        assert_equal s, x
+        assert_equal 'default', y['queue']
+      end
+    end
+
+    it 'can reschedule jobs' do
+      add_retry('foo1')
+      add_retry('foo2')
+
+      retries = Sidekiq::RetrySet.new
+      assert_equal 2, retries.size
+      refute(retries.map { |r| r.score > (Time.now.to_f + 9) }.any?)
+
+      retries.each do |retri|
+        retri.reschedule(Time.now.to_f + 10) if retri.jid == 'foo2'
+      end
+
+      assert_equal 2, retries.size
+      assert(retries.map { |r| r.score > (Time.now.to_f + 9) }.any?)
     end
 
     def add_retry(jid = 'bob', at = Time.now.to_f)

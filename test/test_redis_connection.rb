@@ -5,6 +5,27 @@ class TestRedisConnection < MiniTest::Unit::TestCase
 
   describe ".create" do
 
+    it "creates a pooled redis connection" do
+      pool = Sidekiq::RedisConnection.create
+      assert_equal Redis, pool.checkout.class
+    end
+
+    describe "namespace" do
+      it "uses a given :namespace" do
+        pool = Sidekiq::RedisConnection.create(:namespace => "xxx")
+        assert_equal "xxx", pool.checkout.namespace
+      end
+
+      it "uses given :namespace over :namespace from Sidekiq.options" do
+        Sidekiq.options[:namespace] = "xxx"
+        pool = Sidekiq::RedisConnection.create(:namespace => "yyy")
+        assert_equal "yyy", pool.checkout.namespace
+      end
+    end
+  end
+
+  describe ".determine_redis_provider" do
+
     def with_env_var(var, uri, skip_provider=false)
       vars = ['REDISTOGO_URL', 'REDIS_PROVIDER', 'REDIS_URL'] - [var]
       vars.each do |v|
@@ -12,7 +33,7 @@ class TestRedisConnection < MiniTest::Unit::TestCase
         ENV[v] = nil
       end
       ENV[var] = uri
-      assert_equal uri, Sidekiq::RedisConnection.determine_redis_provider
+      assert_equal uri, Sidekiq::RedisConnection.send(:determine_redis_provider)
       ENV[var] = nil
     end
 

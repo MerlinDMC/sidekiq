@@ -1,3 +1,121 @@
+2.10.1
+-----------
+
+- Remove need for the i18n gem. (brandonhilkert)
+
+
+2.10.0
+-----------
+
+- Refactor algorithm for putting scheduled jobs onto the queue [#843]
+- Fix scheduler thread dying due to incorrect error handling [#839]
+- Fix issue which left stale workers if Sidekiq wasn't shutdown while
+quiet. [#840]
+- I18n for web UI.  Please submit translations of `web/locales/en.yml` for
+your own language. [#811]
+- 'sinatra', 'slim' and 'i18n' are now gem dependencies for Sidekiq.
+
+
+2.9.0
+-----------
+
+- Update 'sidekiq/testing' to work with any Sidekiq::Client call. It
+  also serializes the arguments as using Redis would. [#713]
+- Raise a Sidekiq::Shutdown error within workers which don't finish within the hard
+  timeout.  This is to prevent unwanted database transaction commits. [#377]
+- Lazy load Redis connection pool, you no longer need to specify
+  anything in Passenger or Unicorn's after_fork callback [#794]
+- Add optional Worker#retries_exhausted hook after max retries failed. [jkassemi, #780]
+- Fix bug in pagination link to last page [pitr, #774]
+- Upstart scripts for multiple Sidekiq instances [dariocravero, #763]
+- Use select via pipes instead of poll to catch signals [mrnugget, #761]
+
+2.8.0
+-----------
+
+- I18n support!  Sidekiq can optionally save and restore the Rails locale
+  so it will be properly set when your jobs execute.  Just include
+  `require 'sidekiq/middleware/i18n'` in your sidekiq initializer. [#750]
+- Fix bug which could lose messages when using namespaces and the message
+needs to be requeued in Redis. [#744]
+- Refactor Redis namespace support [#747].  The redis namespace can no longer be
+  passed via the config file, the only supported way is via Ruby in your
+  initializer:
+
+```ruby
+sidekiq_redis = { :url => 'redis://localhost:3679', :namespace => 'foo' }
+Sidekiq.configure_server { |config| config.redis = sidekiq_redis }
+Sidekiq.configure_client { |config| config.redis = sidekiq_redis }
+```
+
+A warning is printed out to the log if a namespace is found in your sidekiq.yml.
+
+
+2.7.5
+-----------
+
+- Capistrano no longer uses daemonization in order to work with JRuby [#719]
+- Refactor signal handling to work on Ruby 2.0 [#728, #730]
+- Fix dashboard refresh URL [#732]
+
+2.7.4
+-----------
+
+- Fixed daemonization, was broken by some internal refactoring in 2.7.3 [#727]
+
+2.7.3
+-----------
+
+- Real-time dashboard is now the default web page
+- Make config file optional for capistrano
+- Fix Retry All button in the Web UI
+
+2.7.2
+-----------
+
+- Remove gem signing infrastructure.  It was causing Sidekiq to break
+when used via git in Bundler.  This is why we can't have nice things. [#688]
+
+
+2.7.1
+-----------
+
+- Fix issue with hard shutdown [#680]
+
+
+2.7.0
+-----------
+
+- Add -d daemonize flag, capistrano recipe has been updated to use it [#662]
+- Support profiling via `ruby-prof` with -p.  When Sidekiq is stopped
+  via Ctrl-C, it will output `profile.html`.  You must add `gem 'ruby-prof'` to your Gemfile for it to work.
+- Dynamically update Redis stats on dashboard [brandonhilkert]
+- Add Sidekiq::Workers API giving programmatic access to the current
+  set of active workers.
+
+```
+workers = Sidekiq::Workers.new
+workers.size => 2
+workers.each do |name, work|
+  # name is a unique identifier per Processor instance
+  # work is a Hash which looks like:
+  # { 'queue' => name, 'run_at' => timestamp, 'payload' => msg }
+end
+```
+
+- Allow environment-specific sections within the config file which
+override the global values [dtaniwaki, #630]
+
+```
+---
+:concurrency:  50
+:verbose:      false
+staging:
+  :verbose:      true
+  :concurrency:  5
+```
+
+
 2.6.5
 -----------
 

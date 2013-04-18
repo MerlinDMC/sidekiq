@@ -1,3 +1,4 @@
+# encoding: utf-8
 require 'sidekiq/version'
 require 'sidekiq/logging'
 require 'sidekiq/client'
@@ -23,7 +24,12 @@ module Sidekiq
     :require => '.',
     :environment => nil,
     :timeout => 8,
+    :profile => false,
   }
+
+  def self.❨╯°□°❩╯︵┻━┻
+    puts "Calm down, bro"
+  end
 
   def self.options
     @options ||= DEFAULTS.dup
@@ -61,16 +67,16 @@ module Sidekiq
   end
 
   def self.redis(&block)
-    @redis ||= Sidekiq::RedisConnection.create
     raise ArgumentError, "requires a block" if !block
+    @redis ||= Sidekiq::RedisConnection.create(@hash || {})
     @redis.with(&block)
   end
 
   def self.redis=(hash)
+    return @redis = hash if hash.is_a?(ConnectionPool)
+
     if hash.is_a?(Hash)
-      @redis = RedisConnection.create(hash)
-    elsif hash.is_a?(ConnectionPool)
-      @redis = hash
+      @hash = hash
     else
       raise ArgumentError, "redis= requires a Hash or ConnectionPool"
     end
@@ -89,7 +95,7 @@ module Sidekiq
   end
 
   def self.load_json(string)
-    MultiJson.decode(string)
+    MultiJson.decode(string, :symbolize_keys => false)
   end
 
   def self.dump_json(object)
@@ -110,6 +116,7 @@ module Sidekiq
 
   def self.fetch_interval=(interval)
     self.options[:fetch_interval] = interval
+<<<<<<< HEAD
   end
 
   ##
@@ -122,6 +129,7 @@ module Sidekiq
         queues.map { |q| conn.llen("queue:#{q}") }
       }
     }.inject(0) { |memo, count| memo += count }
+=======
+>>>>>>> refs/heads/remerge
   end
-
 end

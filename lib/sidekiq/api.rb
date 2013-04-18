@@ -137,6 +137,10 @@ module Sidekiq
       end
     end
 
+    def find_job(jid)
+      self.detect { |j| j.jid == jid }
+    end
+
     def clear
       Sidekiq.redis do |conn|
         conn.multi do
@@ -210,6 +214,11 @@ module Sidekiq
       @parent.delete(score, jid)
     end
 
+    def reschedule(at)
+      @parent.delete(score, jid)
+      @parent.schedule(at, item)
+    end
+
     def retry
       raise "Retry not available on jobs not in the Retry queue." unless item["failed_at"]
       Sidekiq.redis do |conn|
@@ -218,7 +227,7 @@ module Sidekiq
         results.map do |message|
           msg = Sidekiq.load_json(message)
           msg['retry_count'] = msg['retry_count'] - 1
-          conn.rpush("queue:#{msg['queue']}", Sidekiq.dump_json(msg))
+          conn.lpush("queue:#{msg['queue']}", Sidekiq.dump_json(msg))
         end
       end
     end
@@ -233,6 +242,12 @@ module Sidekiq
 
     def size
       Sidekiq.redis {|c| c.zcard(@zset) }
+    end
+
+    def schedule(timestamp, message)
+      Sidekiq.redis do |conn|
+        conn.zadd(@zset, timestamp.to_s, Sidekiq.dump_json(message))
+      end
     end
 
     def each(&block)
@@ -266,6 +281,10 @@ module Sidekiq
         end
         result
       end
+    end
+
+    def find_job(jid)
+      self.detect { |j| j.jid == jid }
     end
 
     def delete(score, jid = nil)
@@ -330,6 +349,51 @@ module Sidekiq
   class RetrySet < SortedSet
     def initialize
       super 'retry'
+    end
+
+    def retry_all
+      while size > 0
+        each(&:retry)
+      end
+    end
+  end
+
+
+  ##
+  # Programmatic access to the current active worker set.
+  #
+  # WARNING WARNING WARNING
+  #
+  # This is live data that can change every millisecond.
+  # If you do #size => 5 and then expect #each to be
+  # called 5 times, you're going to have a bad time.
+  #
+  #    workers = Sidekiq::Workers.new
+  #    workers.size => 2
+  #    workers.each do |name, work|
+  #      # name is a unique identifier per Processor instance
+  #      # work is a Hash which looks like:
+  #      # { 'queue' => name, 'run_at' => timestamp, 'payload' => msg }
+  #    end
+
+  class Workers
+    include Enumerable
+
+    def each(&block)
+      Sidekiq.redis do |conn|
+        workers = conn.smembers("workers")
+        workers.each do |w|
+          msg = conn.get("worker:#{w}")
+          next unless msg
+          block.call(w, Sidekiq.load_json(msg))
+        end
+      end
+    end
+
+    def size
+      Sidekiq.redis do |conn|
+        conn.scard("workers")
+      end.to_i
     end
   end
 

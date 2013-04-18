@@ -16,6 +16,8 @@ var realtimeGraph = function(updatePath) {
     width: 800,
     height: 200,
     renderer: 'line',
+    interpolation: 'linear',
+
     series: new Rickshaw.Series.FixedDuration([{ name: 'failed', color: '#B1003E' }, { name: 'processed', color: '#006f68' }], undefined, {
         timeInterval: timeInterval,
         maxDataPoints: 100,
@@ -40,20 +42,21 @@ var realtimeGraph = function(updatePath) {
     $.getJSON($("#history").data("update-url"), function(data) {
 
       if (i === 0) {
-        var processed = data.processed;
-        var failed = data.failed;
+        var processed = data.sidekiq.processed;
+        var failed = data.sidekiq.failed;
       } else {
-        var processed = data.processed - Sidekiq.processed;
-        var failed = data.failed - Sidekiq.failed;
+        var processed = data.sidekiq.processed - Sidekiq.processed;
+        var failed = data.sidekiq.failed - Sidekiq.failed;
       }
 
       graph.series.addData({ failed: failed, processed: processed });
       graph.render();
 
-      Sidekiq.processed = data.processed;
-      Sidekiq.failed = data.failed;
+      Sidekiq.processed = data.sidekiq.processed;
+      Sidekiq.failed = data.sidekiq.failed;
 
-      updateStatsSummary(data);
+      updateStatsSummary(data.sidekiq);
+      updateRedisStats(data.redis);
       pulseBeacon();
     });
     i++;
@@ -69,6 +72,7 @@ var historyGraph = function() {
     width: 800,
     height: 200,
     renderer: 'line',
+    interpolation: 'linear',
     series: [
       {
         color: "#B1003E",
@@ -93,7 +97,7 @@ var historyGraph = function() {
 
   var hoverDetail = new Rickshaw.Graph.HoverDetail({
     graph: graph,
-    yFormatter: function(y) { return Math.floor(y) },
+    yFormatter: function(y) { return Math.floor(y).numberWithDelimiter() },
   });
 }
 
@@ -110,9 +114,18 @@ var createSeries = function(obj) {
 var updateStatsSummary = function(data) {
   $('ul.summary li.processed span.count').html(data.processed.numberWithDelimiter())
   $('ul.summary li.failed span.count').html(data.failed.numberWithDelimiter())
+  $('ul.summary li.busy span.count').html(data.busy.numberWithDelimiter())
   $('ul.summary li.scheduled span.count').html(data.scheduled.numberWithDelimiter())
   $('ul.summary li.retries span.count').html(data.retries.numberWithDelimiter())
   $('ul.summary li.enqueued span.count').html(data.enqueued.numberWithDelimiter())
+}
+
+var updateRedisStats = function(data) {
+  $('.stat h3.redis_version').html(data.redis_version)
+  $('.stat h3.uptime_in_days').html(data.uptime_in_days)
+  $('.stat h3.connected_clients').html(data.connected_clients)
+  $('.stat h3.used_memory_human').html(data.used_memory_human)
+  $('.stat h3.used_memory_peak_human').html(data.used_memory_peak_human)
 }
 
 var pulseBeacon = function(){

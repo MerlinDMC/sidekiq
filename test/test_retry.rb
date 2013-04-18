@@ -167,27 +167,35 @@ class TestRetry < MiniTest::Unit::TestCase
       # MiniTest can't assert that a method call did NOT happen!?
       assert_raises(MockExpectationError) { @redis.verify }
     end
-  end
 
-  describe 'poller' do
-    before do
-      @redis = MiniTest::Mock.new
-      Sidekiq.instance_variable_set(:@redis, @redis)
+    describe "retry exhaustion" do
+      let(:worker){ MiniTest::Mock.new }
+      let(:handler){ Sidekiq::Middleware::Server::RetryJobs.new }
+      let(:msg){ {"class"=>"Bob", "args"=>[1, 2, "foo"], "queue"=>"default", "error_message"=>"kerblammo!", "error_class"=>"RuntimeError", "failed_at"=>Time.now.utc, "retry"=>3, "retry_count"=>3} }
 
-      def @redis.with; yield self; end
-    end
+      it 'calls worker retries_exhausted after too many retries' do
+        worker.expect(:retries_exhausted, true, [1,2,"foo"]) 
+        task_misbehaving_worker
+        worker.verify
+      end
 
-    it 'should poll like a bad mother...SHUT YO MOUTH' do
-      fake_msg = Sidekiq.dump_json({ 'class' => 'Bob', 'args' => [1,2], 'queue' => 'someq' })
-      @redis.expect :multi, [[fake_msg], 1], []
-      @redis.expect :multi, [[], nil], []
-      @redis.expect :multi, [[], nil], []
-      @redis.expect :multi, [[], nil], []
+      it 'handles and logs retries_exhausted failures gracefully (drops them)' do
+        def worker.retries_exhausted(*args)
+          raise 'bam!'
+        end
 
-      inst = Sidekiq::Scheduled::Poller.new
-      inst.poll
+        e = task_misbehaving_worker
+        assert_equal e.message, "kerblammo!"
+        worker.verify
+      end
 
-      @redis.verify
+      def task_misbehaving_worker
+        assert_raises RuntimeError do
+          handler.call(worker, msg, 'default') do
+            raise 'kerblammo!'
+          end
+        end
+      end
     end
   end
 
